@@ -30,26 +30,31 @@ namespace Avro.Test
     [TestFixture]
     public class SchemaNormalizationTests
     {
+        private static readonly long One = -9223372036854775808;
+        private static readonly byte[] Postfix = { 0, 0, 0, 0, 0, 0, 0, 0 };
+
         [Test, TestCaseSource("ProvideCanonicalTestCases")]
         public void CanonicalTest(string input, string expectedOutput)
         {
             Assert.AreEqual(expectedOutput, SchemaNormalization.ToParsingForm(Schema.Parse(input)));
         }
 
-        //[Test, TestCaseSource("ProvideFingerprintTestCases")]
-        //public void FingerprintTest(string input, string expectedOutput)
-        //{
-        //    Schema s = Schema.Parse(input);
-        //    Assert.AreEqual(expectedOutput, input);
-        //}
+        [Test, TestCaseSource("ProvideFingerprintTestCases")]
+        public void FingerprintTest(string input, string expectedOutput)
+        {
+            Schema s = Schema.Parse(input);
+            long carefulFP = AltFingerprint(SchemaNormalization.ToParsingForm(s));
+            Assert.AreEqual(long.Parse(expectedOutput), carefulFP);
+            Assert.AreEqual(carefulFP, SchemaNormalization.ParsingFingerprint64(s));
+        }
 
-        //private static IEnumerable<object> ProvideFingerprintTestCases()
-        //{
-        //    using (StreamReader reader = new StreamReader("../../../../../share/test/data/schema-tests.txt"))
-        //    {
-        //        return CaseFinder.Find(reader, "fingerprint", new List<object[]>());
-        //    }
-        //}
+        private static IEnumerable<object> ProvideFingerprintTestCases()
+        {
+            using (StreamReader reader = new StreamReader("../../../../../share/test/data/schema-tests.txt"))
+            {
+                return CaseFinder.Find(reader, "fingerprint", new List<object[]>());
+            }
+        }
 
         private static IEnumerable<object> ProvideCanonicalTestCases()
         {
@@ -57,6 +62,34 @@ namespace Avro.Test
             {
                 return CaseFinder.Find(reader, "canonical", new List<object[]>());
             }
+        }
+
+        private static long AltFingerprint(string s)
+        {
+            long tmp = AltExtended(SchemaNormalization.Empty64, 64, One, Encoding.UTF8.GetBytes(s));
+            return AltExtended(SchemaNormalization.Empty64, 64, tmp, Postfix);
+        }
+
+        private static long AltExtended(long poly, int degree, long fp, byte[] b)
+        {
+            long overflowBit = 1L << (64 - degree);
+            for (int i = 0; i < b.Length; i++)
+            {
+                for (int j = 1; j < 129; j = j << 1)
+                {
+                    bool overflow = (0 != (fp & overflowBit));
+                    fp = (long) (((ulong) fp) >> 1);
+                    if (0 != (j & b[i]))
+                    {
+                        fp |= One;
+                    }
+                    if (overflow)
+                    {
+                        fp ^= poly;
+                    }
+                }
+            }
+            return fp;
         }
     }
 }

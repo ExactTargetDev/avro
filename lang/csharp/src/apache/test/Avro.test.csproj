@@ -92,6 +92,7 @@
     <Compile Include="Schema\SchemaTests.cs" />
     <Compile Include="Specific\SpecificTests.cs" />
     <Compile Include="Utils\CaseFinder.cs" />
+    <Compile Include="Utils\CaseFinderTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\main\Avro.main.csproj">

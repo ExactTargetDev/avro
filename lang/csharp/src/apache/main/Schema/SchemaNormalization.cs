@@ -18,6 +18,7 @@
 
 using System.Collections.Generic;
 using System.Text;
+using System;
 
 namespace Avro
 {
@@ -26,6 +27,8 @@ namespace Avro
     /// </summary>
     public static class SchemaNormalization
     {
+        public static long Empty64 = -4513414715797952619;
+
         /// <summary>
         /// Parses a schema into the canonical form as defined by Avro spec.
         /// </summary>
@@ -35,6 +38,95 @@ namespace Avro
         {
             IDictionary<string, string> env = new Dictionary<string, string>();
             return Build(env, s, new StringBuilder()).ToString();
+        }
+
+        /// <summary>
+        /// <para>Returns a fingerprint of a string of bytes. This string is
+        /// presumed to contain a canonical form of a schema. The
+        /// algorithm used to compute the fingerprint is selected by the
+        /// argument <i>fpName</i>.
+        /// </para>
+        /// <para>If <i>fpName</i> equals the string
+        /// <code>"CRC-64-AVRO"</code>, then the result of <see cref="Fingerprint64(byte[])"/> is
+        /// returned in little-endian format.
+        /// </para>
+        /// <para>If <i>fpName</i> equals the string
+        /// <code>"MD5"</code>, then the standard MD5 algorithm is used.
+        /// </para>
+        /// <para>If <i>fpName</i> equals the string
+        /// <code>"SHA-256"</code>, then the standard SHA-256 algorithm is used.
+        /// </para>
+        /// <para>Otherwise, <i>fpName</i> is
+        /// not recognized and an
+        /// <code>ArgumentException</code> is thrown
+        /// </para>
+        /// <para> Recommended Avro practice dictiates that
+        /// <code>"CRC-64-AVRO"</code> is used for 64-bit fingerprints,
+        /// <code>"MD5"</code> is used for 128-bit fingerprints, and
+        /// <code>"SHA-256"</code> is used for 256-bit fingerprints.
+        /// </para>
+        /// </summary>
+        /// <param name="fpName">Name of the hashing algorithm.</param>
+        /// <param name="data">Data to be hashed.</param>
+        /// <returns>Fingerprint</returns>
+        public static byte[] Fingerprint(string fpName, byte[] data)
+        {
+            switch (fpName)
+            {
+                case "CRC-64-AVRO":
+                    long fp = Fingerprint64(data);
+                    byte[] result = new byte[8];
+                    for (int i = 0; i < 8; i++)
+                    {
+                        result[i] = (byte) fp;
+                        fp >>= 8;
+                    }
+                    return result;
+                case "MD5":
+                    var md5 = System.Security.Cryptography.MD5.Create();
+                    return md5.ComputeHash(data);
+                case "SHA-256":
+                    var sha256 = System.Security.Cryptography.SHA256.Create();
+                    return sha256.ComputeHash(data);
+                default:
+                    throw new ArgumentException(string.Format("Unsupported fingerprint computation algorithm ({0})", fpName));
+            }
+        }
+
+        /// <summary>
+        /// Returns <see cref="Fingerprint(string, byte[])"/> applied to the parsing canonical form of the supplied schema.
+        /// </summary>
+        /// <param name="fpName">Name of the hashing algorithm.</param>
+        /// <param name="s">Schema to be hashed.</param>
+        /// <returns>Fingerprint</returns>
+        public static byte[] ParsingFingerprint(string fpName, Schema s)
+        {
+            return Fingerprint(fpName, Encoding.UTF8.GetBytes(ToParsingForm(s)));
+        }
+
+        /// <summary>
+        /// Returns <see cref="Fingerprint64(byte[])"/> applied to the parsing canonical form of the supplied schema.
+        /// </summary>
+        /// <param name="s">Schema to be hashed.</param>
+        /// <returns>Fingerprint</returns>
+        public static long ParsingFingerprint64(Schema s)
+        {
+            return Fingerprint64(Encoding.UTF8.GetBytes(ToParsingForm(s)));
+        }
+
+        /// <summary>
+        /// Computes the 64-bit Rabin Fingerprint (as recommended in the Avro spec) of a byte string.
+        /// </summary>
+        /// <param name="data">Data to be hashed.</param>
+        /// <returns>Fingerprint</returns>
+        private static long Fingerprint64(byte[] data)
+        {
+            long result = Empty64;
+            foreach (var b in data)
+            {
+                result = ((long)(((ulong)result) >> 8)) ^ Fp64.FpTable[(int) (result ^ b) & 0xff];
+            }
+            return result;
         }
 
         private static StringBuilder Build(IDictionary<string, string> env, Schema s, StringBuilder o)
@@ -134,6 +226,30 @@ namespace Avro
 
                 default:    //boolean, bytes, double, float, int, long, null, string
                     return o.Append("\"").Append(s.Name).Append("\"");
+            }
+        }
+
+        private static class Fp64
+        {
+            private static readonly long[] fpTable = new long[256];
+
+            public static long[] FpTable
+            {
+                get { return fpTable; }
+            }
+
+            static Fp64()
+            {
+                for (int i = 0; i < 256; i++)
+                {
+                    long fp = i;
+                    for (int j = 0; j < 8; j++)
+                    {
+                        long mask = -(fp & 1L);
+                        fp = ((long) (((ulong) fp) >> 1)) ^ (Empty64 & mask);
+                    }
+                    FpTable[i] = fp;
+                }
             }
         }
     }
